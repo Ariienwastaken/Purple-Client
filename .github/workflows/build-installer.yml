@@ -1,0 +1,46 @@
+name: Installer bauen
+
+on:
+  # Laeuft automatisch, wenn du ein Release veroeffentlichst
+  release:
+    types: [published]
+  # Oder von Hand: Actions -> "Installer bauen" -> Run workflow -> Tag eintragen
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release-Tag, z.B. v1.0.5"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Launcher-ZIP aus dem Release laden
+        shell: pwsh
+        run: |
+          gh release download "$env:TAG" --pattern "*.zip" --dir dl --repo "${{ github.repository }}"
+          New-Item -ItemType Directory -Force purple_client | Out-Null
+          Get-ChildItem dl -Filter *.zip | Select-Object -First 1 | ForEach-Object {
+            Expand-Archive -Path $_.FullName -DestinationPath purple_client -Force
+          }
+          Get-ChildItem purple_client | Select-Object Name
+
+      - name: Inno Setup installieren
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Installer kompilieren
+        shell: pwsh
+        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" PurpleClient-Setup.iss'
+
+      - name: Installer ans Release anhaengen
+        shell: pwsh
+        run: gh release upload "$env:TAG" (Get-ChildItem output\*.exe).FullName --clobber --repo "${{ github.repository }}"
